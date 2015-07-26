@@ -1,5 +1,22 @@
 'use strict';
 
+//source: http://krasimirtsonev.com/blog/article/Javascript-template-engine-in-just-20-line
+var TemplateEngine = function (html, options) {
+    var re = /<%([^%>]+)?%>/g, reExp = /(^( )?(if|for|else|switch|case|break|{|}))(.*)?/g, code = 'var r=[];\n', cursor = 0, match;
+    var add = function (line, js) {
+        js ? (code += line.match(reExp) ? line + '\n' : 'r.push(' + line + ');\n') :
+            (code += line != '' ? 'r.push("' + line.replace(/"/g, '\\"') + '");\n' : '');
+        return add;
+    }
+    while (match = re.exec(html)) {
+        add(html.slice(cursor, match.index))(match[1], true);
+        cursor = match.index + match[0].length;
+    }
+    add(html.substr(cursor, html.length - cursor));
+    code += 'return r.join("");';
+    return new Function(code.replace(/[\r\t\n]/g, '')).apply(options);
+};
+
 angular.module('ap.fotorama', [])
 
     .value('apFotoramaConfig',{
@@ -46,11 +63,12 @@ angular.module('ap.fotorama', [])
                     }
                 });
 
+
                 //Преобразование массивов данных в массивы, эквивалентные внутреннему массиву Фоторамы
                 function makeFotoramaArray (res, update) {
                     var n = typeof res === 'object' ? res.length : 0,
                         activeIndex;
-                    
+
                     for (var i = 0, nn = n, arr = [], ci; i < nn; i++) {
                         if (res[i].id !== undefined) {
                             ci = arr.push({}) - 1;
@@ -59,19 +77,24 @@ angular.module('ap.fotorama', [])
                             arr[ci].img      = res[i][opts.img]   !== undefined ? opts.domain + res[i][opts.img]   : res[i][opts.thumb];
                             arr[ci].full     = res[i][opts.full]  !== undefined ? opts.domain + res[i][opts.full]  : res[i][opts.thumb];
                             arr[ci].html     = res[i][opts.html];
-                            arr[ci].caption  = res[i][opts.caption];
+                            arr[ci].video    = res[i][opts.video];
+
+                            if(opts.html_caption)
+                                arr[ci].caption  = TemplateEngine(opts.html_caption, res[i]);
+                            else
+                                arr[ci].caption  = res[i][opts.caption];
 
                             if (res[ci][opts.active]) activeIndex = ci;
-                            
+
                             if (update && collection.data) collection.splice(i, 1, arr[i]);
-                            
+
                         } else {
                             n--;
                         }
                     }
                     return {arr: arr, arrLength: n, activeIndex: activeIndex}
                 }
-                
+
                 function setActive (index) {
                     index = index === undefined && this !== undefined && this.$index !== undefined ? this.$index : index;
 
@@ -82,10 +105,9 @@ angular.module('ap.fotorama', [])
                 scope.setActive = setActive;
 
                 scope.$watch(attrs.ngModel, function (newVal, oldVal) {
-                    
                     //Если модель изменилась, синхронизируем с ней Фотораму
                     if (oldVal !== newVal) {
-                    
+
                         var oKeys = {}, nKeys = {}, i, oi, temp;
 
                         var oArr           = collection.data ? collection.data : [];
@@ -107,19 +129,19 @@ angular.module('ap.fotorama', [])
                                 nKeys[nArr[i].id] = i;
                             }
                             for (i = 0, oi = 0; i < n; i++, oi++) {
-                                
+
                                 if (oArr[oi] === undefined) oArr[oi] = {id: null};
-                                
+
                                 if (nArr[i].id !== oArr[oi].id) {
-                                
-                                    //Добавление нового элемента  
+
+                                    //Добавление нового элемента
                                     if (oKeys[nArr[i].id] === undefined) {
-                             
+
                                         collection.splice(i, 0, nArr[i]);
                                         oi--;
                                         //console.log('+add')
                                     }
-                                    
+
                                     //Удаление элемента
                                     if (oi >= 0 && nKeys[oArr[oi].id] === undefined) {
 
@@ -131,7 +153,7 @@ angular.module('ap.fotorama', [])
 
                                     //Смена позиции
                                     if (i >= 0 && oKeys[nArr[i].id] !== undefined && nKeys[oArr[oi].id] !== undefined) {
-                                    
+
                                         if ((oKeys[nArr[i].id] - oKeys[oArr[oi].id]) > (nKeys[oArr[oi].id] - nKeys[nArr[i].id])) {
 
                                             collection.splice(i, 0, nArr[i]);
@@ -139,7 +161,7 @@ angular.module('ap.fotorama', [])
                                             oi--;
                                             //console.log('add')
                                         } else {
-                                
+
                                             collection.splice(i, 1);
                                             delete oKeys[oArr[oi].id];
                                             i--;
@@ -147,27 +169,29 @@ angular.module('ap.fotorama', [])
                                         }
                                     }
                                 } else if (nArr[i].img !== oArr[oi].img) {
-                                
+
                                     //Замена картинки
                                     collection.splice(i, 1, nArr[i]);
                                     //console.log('change')
                                 }
                             }
-                            
+
                             //Удаляем оставшиеся в конце элементы и меняем активную фотку, если она была удалена, на предыдущую
                             if (o > oi) collection.splice(n, o-(oi));
                             if (oldActiveIndex >= n && activeIndex === undefined) activeIndex = n-1;
-      
+
                         } else if (n) {
                             //Если фоток не было, то инициализируем фотораму заново и обновляем настройки, т.к. они сбрасываются
                             collection.setOptions(opts).load(nArr).setOptions(scope[attrs.apFotorama]);
                             //console.log('load data')
-                        } 
+                        }
 
                         //Переключаемся на активную фотку
                         if (n) activeIndex !== undefined ? collection.show(activeIndex) : collection.show(0);
+
+                        scope.collection = collection;
                     }
-                    
+
                 }, true);
 
                 //Смотрим изменение настроек
@@ -184,7 +208,7 @@ angular.module('ap.fotorama', [])
                             });
                         }
                     });
-                  
+
                     if (newVal.thumb || newVal.img || newVal.full) {
                         //Обновляем фотораму, если поменялись имена картинок
                         makeFotoramaArray(scope[attrs.ngModel], true);
@@ -194,7 +218,7 @@ angular.module('ap.fotorama', [])
 
                 // Создаем фотораму
                 collection = element.fotorama(opts).data('fotorama');
-                
+
                 //Копируем в настройки значения по умолчанию
                 scope[attrs.apFotorama] = angular.extend({}, collection.options, scope[attrs.apFotorama]);
             }
